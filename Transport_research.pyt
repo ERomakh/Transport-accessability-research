@@ -7,13 +7,13 @@ class Toolbox(object):
         self.label = "Urban transport research"
         self.alias = "Urban transport research"
         # List of tool classes associated with this toolbox
-        self.tools = [Route_script, Split_by_District, General_access ,Local_access, Walking_access]
+        self.tools = [Route_script, Split_by_District, General_access, Local_access, Walking_access]
 
 class Route_script(object):
     def __init__(self):
         """Define the tool (tool name is the name of the class)."""
         self.label = "Route_script"
-        self.description = "Route_script"
+        self.description = "This script needed to create lines of transport using points"
         self.canRunInBackground = True
     def getParameterInfo(self):
         """Define parameter definitions"""
@@ -34,12 +34,19 @@ class Route_script(object):
         routes = arcpy.Parameter(
             displayName="Bus routes",
             name="routes",
-            datatype="GPFeatureLayer",
+            datatype="GPString",
             parameterType="Required",
             direction="Output")
 
+        cr_workspace = arcpy.Parameter(
+            displayName="Input workspace",
+            name="cr_workspace",
+            datatype="DEWorkspace",
+            parameterType="Required",
+            direction="Input")
 
-        params = [network_dataset, stops, routes]
+
+        params = [network_dataset, stops, routes, cr_workspace]
         return params
 
     def isLicensed(self):
@@ -62,21 +69,18 @@ class Route_script(object):
         network_dataset = parameters[0].valueAsText
         stops = parameters[1].valueAsText
         routes = parameters[2].valueAsText
+        cr_workspace = parameters[3].valueAsText
 
         #Creating output file
-        arcpy.env.workspace = r'Z:\Documents\Network_an\Diplom\Nov30.gdb'
         arcpy.env.overwriteOutput = True
-        output = r'D:\Diplom\Diplom.gdb\lines'
-        bus_lines = arcpy.CreateFeatureclass_management(r'Z:\Documents\Network_an\Diplom\Nov30.gdb', 'Bus_Routes', 'POLYLINE',
-                                                        spatial_reference=r'Z:\Documents\Network_an\Diplom\Diplom.gdb\stops_nov11')
+        bus_lines = arcpy.CreateFeatureclass_management(cr_workspace, 'Bus_Routes', 'POLYLINE',
+                                                        spatial_reference=stops)
         arcpy.MakeFeatureLayer_management(bus_lines, "bus_lines")
         arcpy.AddField_management('bus_lines', 'Route_name', 'TEXT')
 
         num_list = []
-        arcpy.CreateFeatureclass_management(arcpy.env.workspace, 'points', 'POINT', spatial_reference =
-                                            r'Z:\Documents\Network_an\Diplom\Diplom.gdb\stops_nov11')
+        arcpy.CreateFeatureclass_management(cr_workspace, 'points', 'POINT', spatial_reference=stops)
         points = 'points'
-        out_gdb = arcpy.env.workspace
         #Stops in general, points are specifics stops by routes
         stops_lyr = arcpy.MakeFeatureLayer_management(stops, "bus_stops")
         arcpy.MakeFeatureLayer_management(points, "points")
@@ -96,9 +100,9 @@ class Route_script(object):
                 arcpy.AddMessage('Bus route = {0}'.format(x))
                 #arcpy.AddMessage(arcpy.GetCount_management('bus_stops'))
                 arcpy.SelectLayerByAttribute_management(stops_lyr, 'NEW_SELECTION', "Route_num = '{0}'".format(x))
-                arcpy.FeatureClassToFeatureClass_conversion(stops_lyr, r'Z:\Documents\Network_an\Diplom\Nov30.gdb',
+                arcpy.FeatureClassToFeatureClass_conversion(stops_lyr, cr_workspace,
                                                             out_name = "curr_stops")
-                arcpy.AddMessage('Number of stops in current route = {0}'.format(arcpy.GetCount_management(r'Z:\Documents\Network_an\Diplom\Nov30.gdb\curr_stops')))
+                arcpy.AddMessage('Number of stops in current route = {0}'.format(arcpy.GetCount_management(cr_workspace+ '\curr_stops')))
                 arcpy.AddMessage('Progressor = {0}'.format(count_num))
                 arcpy.MakeODCostMatrixLayer_na(in_network_dataset="Test_Routes_ND",
                                             out_network_analysis_layer="OD Cost Matrix", impedance_attribute="Minutes",
@@ -124,15 +128,15 @@ class Route_script(object):
                                     snap_to_position_along_network="NO_SNAP", snap_offset="5 Meters",
                                     exclude_restricted_elements="INCLUDE",
                                     search_query="tested_roads #;Test_Routes_ND_Junctions #")
-                arcpy.na.GenerateOriginDestinationCostMatrix('Origins', 'Destinations', network_dataset,out_gdb, 'OD_lines', 'Loc_or', 'Loc_dest')
+                arcpy.na.GenerateOriginDestinationCostMatrix('Origins', 'Destinations', network_dataset,cr_workspace, 'OD_lines', 'Loc_or', 'Loc_dest')
                 arcpy.na.Solve("OD Cost Matrix")
                 #break
                 #Save Locations
                 arcpy.FeatureClassToFeatureClass_conversion(in_features="OD Cost Matrix\Lines",
-                                                            out_path=r'Z:\Documents\Network_an\Diplom\Nov30.gdb',
+                                                            out_path=cr_workspace,
                                                             out_name="OD_lines2")
                 #Split names
-                OD_lines2 = r'Z:\Documents\Network_an\Diplom\Nov30.gdb\OD_lines2'
+                OD_lines2 = cr_workspace+ '\OD_lines2'
                 arcpy.MakeFeatureLayer_management(OD_lines2, "OD_lines2")
                 arcpy.AddField_management('OD_lines2', 'Location1', 'TEXT')
                 arcpy.AddField_management('OD_lines2', 'Location2', 'TEXT')
@@ -146,27 +150,27 @@ class Route_script(object):
                                                 expression_type="PYTHON_9.3", code_block="")
                 #Biggest distance
                 arcpy.Sort_management(in_dataset="OD_lines2",
-                                    out_dataset=r'Z:\Documents\Network_an\Diplom\Nov30.gdb\MaxMin',
+                                    out_dataset=cr_workspace+'\MaxMin',
                                     sort_field="Total_Minutes DESCENDING", spatial_sort_method="UR")
                 MLoc1 = []
                 MLoc2 = []
                 fld = ['Location1', 'Location2']
-                MaxMin = r'Z:\Documents\Network_an\Diplom\Nov30.gdb\MaxMin'
+                MaxMin = cr_workspace+ '\MaxMin'
                 with arcpy.da.SearchCursor(MaxMin, fld) as cursor:
                     for row in cursor:
                         MLoc1.append(row[0])
                         MLoc2.append(row[1])
                 #Creating origin and destination points of Route
-                Loc_or = r'Z:\Documents\Network_an\Diplom\Nov30.gdb\Loc_or'
+                Loc_or = cr_workspace + '\Loc_or'
                 arcpy.MakeFeatureLayer_management(Loc_or, "Loc_or")
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Loc_or", selection_type="NEW_SELECTION",
                                                         where_clause="Name = '{0}'".format(MLoc1[0]))
-                arcpy.FeatureClassToFeatureClass_conversion("Loc_or", r'Z:\Documents\Network_an\Diplom\Nov30.gdb',
+                arcpy.FeatureClassToFeatureClass_conversion("Loc_or", cr_workspace,
                                                             out_name="originroute")
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Loc_or", selection_type="CLEAR_SELECTION")
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Loc_or", selection_type="NEW_SELECTION",
                                                         where_clause="Name = '{0}'".format(MLoc2[0]))
-                arcpy.FeatureClassToFeatureClass_conversion("Loc_or", r'Z:\Documents\Network_an\Diplom\Nov30.gdb',
+                arcpy.FeatureClassToFeatureClass_conversion("Loc_or", cr_workspace,
                                                             out_name="destroute")
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Loc_or", selection_type="CLEAR_SELECTION")
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Loc_or", selection_type="NEW_SELECTION",
@@ -174,7 +178,7 @@ class Route_script(object):
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Loc_or", selection_type="ADD_TO_SELECTION",
                                                         where_clause="Name = '{0}'".format(MLoc2[0]))
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Loc_or", selection_type="SWITCH_SELECTION")
-                arcpy.FeatureClassToFeatureClass_conversion("Loc_or", r'Z:\Documents\Network_an\Diplom\Nov30.gdb',
+                arcpy.FeatureClassToFeatureClass_conversion("Loc_or", cr_workspace,
                                                             out_name="middlepoints")
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Loc_or", selection_type="CLEAR_SELECTION")
                 #Creating Route task
@@ -186,7 +190,7 @@ class Route_script(object):
                                         hierarchy_settings="", output_path_shape="TRUE_LINES_WITH_MEASURES",
                                         start_date_time="")
                 arcpy.AddLocations_na(in_network_analysis_layer="Route", sub_layer="Stops",
-                                    in_table=r'Z:\Documents\Network_an\Diplom\Nov30.gdb\originroute',
+                                    in_table=cr_workspace+ '\originroute',
                                     field_mappings="Name Name #;CurbApproach CurbApproach 0",
                                     search_tolerance="200 Meters", sort_field="",
                                     search_criteria="tested_roads SHAPE;Test_Routes_ND_Junctions NONE",
@@ -195,7 +199,7 @@ class Route_script(object):
                                     exclude_restricted_elements="INCLUDE",
                                     search_query="tested_roads #;Test_Routes_ND_Junctions #")
                 arcpy.AddLocations_na(in_network_analysis_layer="Route", sub_layer="Stops",
-                                    in_table=r'Z:\Documents\Network_an\Diplom\Nov30.gdb\middlepoints',
+                                    in_table=cr_workspace+'\middlepoints',
                                     field_mappings="Name Name #;CurbApproach CurbApproach 0",
                                     search_tolerance="200 Meters", sort_field="",
                                     search_criteria="tested_roads SHAPE;Test_Routes_ND_Junctions NONE",
@@ -204,7 +208,7 @@ class Route_script(object):
                                     exclude_restricted_elements="INCLUDE",
                                     search_query="tested_roads #;Test_Routes_ND_Junctions #")
                 arcpy.AddLocations_na(in_network_analysis_layer="Route", sub_layer="Stops",
-                                    in_table=r'Z:\Documents\Network_an\Diplom\Nov30.gdb\destroute',
+                                    in_table=cr_workspace+'\destroute',
                                     field_mappings="Name Name #;CurbApproach CurbApproach 0",
                                     search_tolerance="200 Meters", sort_field="",
                                     search_criteria="tested_roads SHAPE;Test_Routes_ND_Junctions NONE",
@@ -212,12 +216,12 @@ class Route_script(object):
                                     snap_to_position_along_network="NO_SNAP", snap_offset="5 Meters",
                                     exclude_restricted_elements="INCLUDE",
                                     search_query="tested_roads #;Test_Routes_ND_Junctions #")
-                arcpy.na.FindRoutes('Stops', 'Meters', 'Test_Routes_ND', r'Z:\Documents\Network_an\Diplom\Nov30.gdb',
+                arcpy.na.FindRoutes('Stops', 'Meters', 'Test_Routes_ND', cr_workspace,
                                     'OutRoutes', 'OutEdges', 'OutDirections', 'OutStops',
                                     Reorder_Stops_to_Find_Optimal_Routes = 'FIND_BEST_ORDER',
                                     Preserve_Terminal_Stops = 'PRESERVE_BOTH')
                 #Creating Output file
-                arcpy.Append_management(inputs=r'Z:\Documents\Network_an\Diplom\Nov30.gdb\OutRoutes', target=bus_lines,
+                arcpy.Append_management(inputs=cr_workspace+'\OutRoutes', target=bus_lines,
                                         schema_type="NO_TEST")
                 unique_OID = []
                 field_OD = ['OBJECTID']
@@ -230,11 +234,6 @@ class Route_script(object):
                         if row[0] == max(unique_OID):
                             row[1] = x
                             cursor.updateRow(row)
-                #for row in rows:
-                #    if row[0] == max(unique_OID):
-                #        row[1] = x
-                #rows.updateRow(row)
-                #del row, rows
                 arcpy.SelectLayerByAttribute_management(stops_lyr, 'CLEAR_SELECTION')
                 arcpy.SetProgressorPosition()
                 count_num += 1
@@ -247,7 +246,7 @@ class Split_by_District(object):
     def __init__(self):
         """Define the tool (tool name is the name of the class)."""
         self.label = "Point_population"
-        self.description = "Point_population"
+        self.description = "This script needed to transfer population from distrcits to population points"
         self.canRunInBackground = True
     def getParameterInfo(self):
         """Define parameter definitions"""
@@ -304,7 +303,7 @@ class General_access(object):
     def __init__(self):
         """Define the tool (tool name is the name of the class)."""
         self.label = "General_access"
-        self.description = "General_access"
+        self.description = "This code calculates number of citizens in population zones across city center"
         self.canRunInBackground = True
     def getParameterInfo(self):
         """Define parameter definitions"""
@@ -350,7 +349,14 @@ class General_access(object):
             parameterType="Required",
             direction="Output")
 
-        params = [center_point, network_dataset, popul_points, points_30, points_45, points_60]
+        cr_workspace = arcpy.Parameter(
+            displayName="Input workspace",
+            name="cr_workspace",
+            datatype="DEWorkspace",
+            parameterType="Required",
+            direction="Input")
+
+        params = [center_point, network_dataset, popul_points, points_30, points_45, points_60,cr_workspace]
         return params
 
     def isLicensed(self):
@@ -376,24 +382,21 @@ class General_access(object):
         points_30 = parameters[3].valueAsText
         points_45 = parameters[4].valueAsText
         points_60 = parameters[5].valueAsText
+        cr_workspace = parameters[6].valueAsText
 
         #Variables
-        arcpy.env.workspace = r'Z:\Documents\Network_an\Diplom\Common_access.gdb'
         arcpy.env.overwriteOutput = True
 
         center_point_lyr = arcpy.MakeFeatureLayer_management(center_point, "center_point")
         popul_points_lyr = arcpy.MakeFeatureLayer_management(popul_points, "popul_points")
 
-        SA30 = arcpy.CreateFeatureclass_management('Z:\Documents\Network_an\Diplom\Common_access.gdb', 'SA30', "POINT")
-        #SA30 = 'in_memory\SA30'
+        SA30 = arcpy.CreateFeatureclass_management(cr_workspace, 'SA30', "POINT")
         SA30lyr = arcpy.MakeFeatureLayer_management(SA30, "SA30")
 
-        SA45 = arcpy.CreateFeatureclass_management('Z:\Documents\Network_an\Diplom\Common_access.gdb', 'SA45', "POINT")
-        #SA45 = 'in_memory\SA45'
+        SA45 = arcpy.CreateFeatureclass_management(cr_workspace, 'SA45', "POINT")
         SA45lyr = arcpy.MakeFeatureLayer_management(SA45, "SA45")
 
-        SA60 = arcpy.CreateFeatureclass_management('Z:\Documents\Network_an\Diplom\Common_access.gdb', 'SA60', "POINT")
-        #SA60 = 'in_memory\SA60'
+        SA60 = arcpy.CreateFeatureclass_management(cr_workspace, 'SA60', "POINT")
         SA60lyr = arcpy.MakeFeatureLayer_management(SA60, "SA60")
 
         #Network 30
@@ -456,32 +459,32 @@ class General_access(object):
         arcpy.na.Solve("Service Area60")
 
         #Intersect 30
-        pre_points_30 = arcpy.CreateFeatureclass_management("Z:\Documents\Network_an\Diplom\Common_access.gdb", 'pre_points_30',
+        pre_points_30 = arcpy.CreateFeatureclass_management(cr_workspace, 'pre_points_30',
                                                             "POINT")
         pre_points_30_lyr = arcpy.MakeFeatureLayer_management(pre_points_30, "pre_points_30")
         arcpy.Intersect_analysis([popul_points_lyr, SA30lyr], pre_points_30_lyr, "ALL", "", "point")
 
         #Intersect 45
-        pre_points_45 = arcpy.CreateFeatureclass_management("Z:\Documents\Network_an\Diplom\Common_access.gdb", 'pre_points_45',
+        pre_points_45 = arcpy.CreateFeatureclass_management(cr_workspace, 'pre_points_45',
                                                             "POINT")
         pre_points_45_lyr = arcpy.MakeFeatureLayer_management(pre_points_45, "pre_points_45")
         arcpy.Intersect_analysis([popul_points_lyr, SA45lyr], pre_points_45_lyr, "ALL", "", "point")
 
         #Intersect 60
-        pre_points_60 = arcpy.CreateFeatureclass_management("Z:\Documents\Network_an\Diplom\Common_access.gdb", 'pre_points_60',
+        pre_points_60 = arcpy.CreateFeatureclass_management(cr_workspace, 'pre_points_60',
                                                             "POINT")
         pre_points_60_lyr = arcpy.MakeFeatureLayer_management(pre_points_60, "pre_points_60")
         arcpy.Intersect_analysis([popul_points_lyr, SA60lyr], pre_points_60_lyr, "ALL", "", "point")
 
         #Create output
-        arcpy.CreateFeatureclass_management("Z:\Documents\Network_an\Diplom\Common_access.gdb",'points_30',
+        arcpy.CreateFeatureclass_management(cr_workspace,'points_30',
                                             'MULTIPOINT',
-                                            spatial_reference = "Z:\Documents\Network_an\Diplom\Common_access.gdb\center_point")
-        arcpy.CreateFeatureclass_management("Z:\Documents\Network_an\Diplom\Common_access.gdb", 'points_45',
+                                            spatial_reference = cr_workspace+'\center_point')
+        arcpy.CreateFeatureclass_management(cr_workspace, 'points_45',
                                             'MULTIPOINT',
-                                            spatial_reference = "Z:\Documents\Network_an\Diplom\Common_access.gdb\center_point")
-        arcpy.CreateFeatureclass_management("Z:\Documents\Network_an\Diplom\Common_access.gdb", 'points_60', 'MULTIPOINT',
-                                            spatial_reference = "Z:\Documents\Network_an\Diplom\Common_access.gdb\center_point")
+                                            spatial_reference = cr_workspace+'\center_point')
+        arcpy.CreateFeatureclass_management(cr_workspace, 'points_60', 'MULTIPOINT',
+                                            spatial_reference = cr_workspace+'\center_point')
 
         #Dissolve_30
         arcpy.Dissolve_management(in_features=pre_points_30_lyr,
@@ -503,7 +506,7 @@ class Local_access(object):
     def __init__(self):
         """Define the tool (tool name is the name of the class)."""
         self.label = "Local_access"
-        self.description = "Local_access"
+        self.description = "This code calculate number of citizens around metro station service areas"
         self.canRunInBackground = True
     def getParameterInfo(self):
         """Define parameter definitions"""
@@ -538,26 +541,34 @@ class Local_access(object):
         populated_area5 = arcpy.Parameter(
             displayName="Output populated area 5 min",
             name="populated_area5",
-            datatype="GPFeatureLayer",
+            datatype="GPString",
             parameterType="Required",
             direction="Output")
 
         populated_area10 = arcpy.Parameter(
             displayName="Output populated area 10 min",
             name="populated_area10",
-            datatype="GPFeatureLayer",
+            datatype="GPString",
             parameterType="Required",
             direction="Output")
 
         populated_area15 = arcpy.Parameter(
             displayName="Output populated area 15 min",
             name="populated_area15",
-            datatype="GPFeatureLayer",
+            datatype="GPString",
             parameterType="Required",
             direction="Output")
 
+        cr_workspace = arcpy.Parameter(
+            displayName="Input workspace",
+            name="cr_workspace",
+            datatype="DEWorkspace",
+            parameterType="Required",
+            direction="Input")
 
-        params = [metro_stations, network_dataset, popul_points, districts, populated_area5, populated_area10, populated_area15]
+
+        params = [metro_stations, network_dataset, popul_points, districts, populated_area5, populated_area10,
+                  populated_area15, cr_workspace]
         return params
 
     def isLicensed(self):
@@ -584,15 +595,15 @@ class Local_access(object):
         populated_area5 = parameters[4].valueAsText
         populated_area10 = parameters[5].valueAsText
         populated_area15 = parameters[6].valueAsText
+        cr_workspace = parameters[7].valueAsText
 
         # Variables
-        arcpy.env.workspace = r'Z:\Documents\Network_an\Diplom\local_access.gdb'
         arcpy.env.overwriteOutput = True
         metro_stations_lyr = arcpy.MakeFeatureLayer_management(metro_stations, "metro_stations")
         popul_points_lyr = arcpy.MakeFeatureLayer_management(popul_points, "popul_points")
         districts_lyr = arcpy.MakeFeatureLayer_management(districts, "districts")
 
-        SA = arcpy.CreateFeatureclass_management(r'Z:\Documents\Network_an\Diplom\local_access.gdb', 'SA', "POINT")
+        SA = arcpy.CreateFeatureclass_management(cr_workspace, 'SA', "POINT")
         SAlyr = arcpy.MakeFeatureLayer_management(SA, "SA")
 
         # Network
@@ -618,11 +629,11 @@ class Local_access(object):
         arcpy.AddMessage('Finish network')
 
         arcpy.FeatureClassToFeatureClass_conversion(in_features="Service Area\Polygons",
-                                                    out_path="Z:/Documents/Network_an/Diplom/local_access.gdb",
+                                                    out_path=cr_workspace,
                                                     out_name="poly_mins", where_clause="",
                                                     field_mapping='FacilityID "FacilityID" true true true 4 Long 0 0 ,First,#,Service Area\Polygons,FacilityID,-1,-1;Name "Name" true true true 1024 Text 0 0 ,First,#,Service Area\Polygons,Name,-1,-1;FromBreak "FromBreak" true true true 8 Double 0 0 ,First,#,Service Area\Polygons,FromBreak,-1,-1;ToBreak "ToBreak" true true true 8 Double 0 0 ,First,#,Service Area\Polygons,ToBreak,-1,-1',
                                                     config_keyword="")
-        poly_mins_lyr = arcpy.MakeFeatureLayer_management("Z:/Documents/Network_an/Diplom/local_access.gdb/poly_mins",
+        poly_mins_lyr = arcpy.MakeFeatureLayer_management(cr_workspace+"/poly_mins",
                                                           "poly_mins")
         # Cursor
         arcpy.AddMessage('Start cursor')
@@ -631,35 +642,35 @@ class Local_access(object):
             for row in cursor:
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="poly_mins_lyr", selection_type="NEW_SELECTION",
                                                         where_clause="ToBreak = {0}".format(row[0]))
-                arcpy.CreateFeatureclass_management(r'Z:\Documents\Network_an\Diplom\local_access.gdb', 'SA{0}'.format(row[0]),
+                arcpy.CreateFeatureclass_management(cr_workspace, 'SA{0}'.format(row[0]),
                                                          "POINT")
                 arcpy.SelectLayerByAttribute_management(in_layer_or_view="poly_mins_lyr", selection_type="CLEAR_SELECTION")
 
         arcpy.AddMessage('Finish cursor')
 
-        SA5 = r'Z:\Documents\Network_an\Diplom\local_access.gdb\SA5'
-        SA10 = r'Z:\Documents\Network_an\Diplom\local_access.gdb\SA10'
-        SA15 = r'Z:\Documents\Network_an\Diplom\local_access.gdb\SA15'
+        SA5 = cr_workspace+'\SA5'
+        SA10 = cr_workspace+'\SA10'
+        SA15 = cr_workspace+'\SA15'
         SA5lyr = arcpy.MakeFeatureLayer_management(SA5, "SA5")
         SA15lyr = arcpy.MakeFeatureLayer_management(SA15, "SA15")
         SA10lyr = arcpy.MakeFeatureLayer_management(SA10, "SA10")
 
         arcpy.AddMessage('Start intersect')
         # Intersect 5
-        pre_points_5 = arcpy.CreateFeatureclass_management(r'Z:\Documents\Network_an\Diplom\local_access.gdb', 'pre_points_5',
+        pre_points_5 = arcpy.CreateFeatureclass_management(cr_workspace, 'pre_points_5',
                                                             "POINT")
         pre_points_5_lyr = arcpy.MakeFeatureLayer_management(pre_points_5, "pre_points_5")
         arcpy.Intersect_analysis([popul_points_lyr, SA5lyr], pre_points_5_lyr, "ALL", "", "point")
 
         # Intersect 10
-        pre_points_10 = arcpy.CreateFeatureclass_management(r'Z:\Documents\Network_an\Diplom\local_access.gdb', 'pre_points_10',
+        pre_points_10 = arcpy.CreateFeatureclass_management(cr_workspace, 'pre_points_10',
                                                             "POINT")
         arcpy.AddMessage('Middle intersect')
         pre_points_10_lyr = arcpy.MakeFeatureLayer_management(pre_points_10, "pre_points_10")
         arcpy.Intersect_analysis([popul_points_lyr, SA10lyr], pre_points_10_lyr, "ALL", "", "point")
 
         # Intersect 15
-        pre_points_15 = arcpy.CreateFeatureclass_management(r'Z:\Documents\Network_an\Diplom\local_access.gdb', 'pre_points_15',
+        pre_points_15 = arcpy.CreateFeatureclass_management(cr_workspace, 'pre_points_15',
                                                             "POINT")
         pre_points_15_lyr = arcpy.MakeFeatureLayer_management(pre_points_15, "pre_points_15")
         arcpy.Intersect_analysis([popul_points_lyr, SA15lyr], pre_points_15_lyr, "ALL", "", "point")
@@ -667,15 +678,13 @@ class Local_access(object):
         arcpy.AddMessage('Finish intersect')
 
         # Create temporary points
-        points_5 = arcpy.CreateFeatureclass_management(r'Z:\Documents\Network_an\Diplom\local_access.gdb', 'points_5',
+        points_5 = arcpy.CreateFeatureclass_management(cr_workspace, 'points_5',
                                             'MULTIPOINT',
-                                            spatial_reference="Z:\Documents\Network_an\Diplom\Common_access.gdb\center_point")
-        points_10 = arcpy.CreateFeatureclass_management(r'Z:\Documents\Network_an\Diplom\local_access.gdb', 'points_10',
-                                            'MULTIPOINT',
-                                            spatial_reference="Z:\Documents\Network_an\Diplom\Common_access.gdb\center_point")
-        points_15 = arcpy.CreateFeatureclass_management(r'Z:\Documents\Network_an\Diplom\local_access.gdb', 'points_15',
-                                            'MULTIPOINT',
-                                            spatial_reference="Z:\Documents\Network_an\Diplom\Common_access.gdb\center_point")
+                                            spatial_reference=cr_workspace+"\center_point")
+        points_10 = arcpy.CreateFeatureclass_management(cr_workspace, 'points_10', 'MULTIPOINT',
+                                            spatial_reference=cr_workspace+"\center_point")
+        points_15 = arcpy.CreateFeatureclass_management(cr_workspace, 'points_15', 'MULTIPOINT',
+                                            spatial_reference=cr_workspace+"\center_point")
         arcpy.AddMessage('Finish temporary points')
         # Dissolve_5
         arcpy.Dissolve_management(in_features=pre_points_5_lyr,
@@ -697,25 +706,20 @@ class Local_access(object):
 
         # Copying tables
         table_5 = arcpy.TableToGeodatabase_conversion(Input_Table="points_5",
-                                            Output_Geodatabase="Z:/Documents/Network_an/Diplom/local_access.gdb")
+                                            Output_Geodatabase=cr_workspace)
         table_10 = arcpy.TableToGeodatabase_conversion(Input_Table="points_10",
-                                            Output_Geodatabase="Z:/Documents/Network_an/Diplom/local_access.gdb")
+                                            Output_Geodatabase=cr_workspace)
         table_15 = arcpy.TableToGeodatabase_conversion(Input_Table="points_15",
-                                            Output_Geodatabase="Z:/Documents/Network_an/Diplom/local_access.gdb")
+                                            Output_Geodatabase=cr_workspace)
 
         arcpy.AddMessage('Finish copying tables')
 
         # Create predistricts files
-        predistr5 = arcpy.FeatureClassToFeatureClass_conversion(districts_lyr, r'Z:\Documents\Network_an\Diplom\local_access.gdb',
-                                                    out_name="predistr5")
+        predistr5 = arcpy.FeatureClassToFeatureClass_conversion(districts_lyr, cr_workspace, out_name="predistr5")
         predistr5_lyr = arcpy.MakeFeatureLayer_management(predistr5, "predistr5")
-        predistr10 = arcpy.FeatureClassToFeatureClass_conversion(districts_lyr,
-                                                                r'Z:\Documents\Network_an\Diplom\local_access.gdb',
-                                                                out_name="predistr10")
+        predistr10 = arcpy.FeatureClassToFeatureClass_conversion(districts_lyr, cr_workspace, out_name="predistr10")
         predistr10_lyr = arcpy.MakeFeatureLayer_management(predistr10, "predistr10")
-        predistr15 = arcpy.FeatureClassToFeatureClass_conversion(districts_lyr,
-                                                                r'Z:\Documents\Network_an\Diplom\local_access.gdb',
-                                                                out_name="predistr15")
+        predistr15 = arcpy.FeatureClassToFeatureClass_conversion(districts_lyr, cr_workspace, out_name="predistr15")
         predistr15_lyr = arcpy.MakeFeatureLayer_management(predistr15, "predistr15")
 
         arcpy.AddMessage('Finish predistricts')
@@ -755,15 +759,15 @@ class Local_access(object):
         arcpy.AddMessage('Finish calculate field')
 
         # Generate output
-        arcpy.FeatureClassToFeatureClass_conversion(predistr5_lyr, 'populated_area5', populated_area5)
-        arcpy.FeatureClassToFeatureClass_conversion(predistr10_lyr, 'populated_area10', populated_area10)
-        arcpy.FeatureClassToFeatureClass_conversion(predistr15_lyr, 'populated_area15', populated_area15)
+        arcpy.FeatureClassToFeatureClass_conversion(predistr5_lyr,cr_workspace, populated_area5)
+        arcpy.FeatureClassToFeatureClass_conversion(predistr10_lyr,cr_workspace, populated_area10)
+        arcpy.FeatureClassToFeatureClass_conversion(predistr15_lyr,cr_workspace, populated_area15)
 
 class Walking_access(object):
     def __init__(self):
         """Define the tool (tool name is the name of the class)."""
         self.label = "Walking_access"
-        self.description = "Walking_access"
+        self.description = "This code calculates number of citizens who have metro station in 10 minute distance"
         self.canRunInBackground = True
     def getParameterInfo(self):
         """Define parameter definitions"""
